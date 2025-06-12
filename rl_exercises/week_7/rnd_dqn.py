@@ -90,7 +90,10 @@ class RNDDQNAgent(DQNAgent):
         self._init_rnd_networks()
 
     def _init_rnd_networks(self) -> None:
-        """Initialize the RND networks."""
+        """
+        Initialize the RND networks.
+        The code was generated with the help of Github Copilot Completions
+        """
 
         # Initialize the predictor network, the state embedding is set to the same size as the observation space
         self.rnd_predictor = nn.Sequential(
@@ -137,7 +140,7 @@ class RNDDQNAgent(DQNAgent):
         training_batch : list of transitions
             Each is (state, action, reward, next_state, done, info).
         """
-        # TODO: get states and next_states from the batch
+        # TODO: get states and next_states from the batch (with help of Copilot Completions)
         states, _, _, next_states, _, _ = zip(*training_batch)
         states = torch.tensor(np.array(states), dtype=torch.float32)
         next_states = torch.tensor(np.array(next_states), dtype=torch.float32)
