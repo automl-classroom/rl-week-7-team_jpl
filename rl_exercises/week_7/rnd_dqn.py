@@ -8,6 +8,8 @@ import gymnasium as gym
 import hydra
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn as nn
 from omegaconf import DictConfig
 from rl_exercises.week_4.dqn import DQNAgent, set_seed
 
@@ -80,7 +82,49 @@ class RNDDQNAgent(DQNAgent):
         )
         self.seed = seed
         # TODO: initialize the RND networks
-        ...
+        self.rnd_hidden_size = rnd_hidden_size
+        self.rnd_lr = rnd_lr
+        self.rnd_update_freq = rnd_update_freq
+        self.rnd_n_layers = rnd_n_layers
+        self.rnd_reward_weight = rnd_reward_weight
+        self._init_rnd_networks()
+
+    def _init_rnd_networks(self) -> None:
+        """Initialize the RND networks."""
+
+        # Initialize the predictor network, the state embedding is set to the same size as the observation space
+        self.rnd_predictor = nn.Sequential(
+            nn.Linear(self.env.observation_space.shape[0], self.rnd_hidden_size),
+            nn.ReLU(),
+            *[
+                nn.Sequential(
+                    nn.Linear(self.rnd_hidden_size, self.rnd_hidden_size), nn.ReLU()
+                )
+                for _ in range(self.rnd_n_layers - 1)
+            ],
+            nn.Linear(self.rnd_hidden_size, self.env.observation_space.shape[0]),
+        )
+        self.rnd_predictor_optimizer = torch.optim.Adam(
+            self.rnd_predictor.parameters(), lr=self.rnd_lr
+        )
+
+        # Initialize the Random Network
+        self.rnd_target = nn.Sequential(
+            nn.Linear(self.env.observation_space.shape[0], self.rnd_hidden_size),
+            nn.ReLU(),
+            *[
+                nn.Sequential(
+                    nn.Linear(self.rnd_hidden_size, self.rnd_hidden_size), nn.ReLU()
+                )
+                for _ in range(self.rnd_n_layers - 1)
+            ],
+            nn.Linear(self.rnd_hidden_size, self.env.observation_space.shape[0]),
+        )
+
+        # Freeze the target network (Random Network)
+        self.rnd_target.eval()
+        for param in self.rnd_target.parameters():
+            param.requires_grad = False
 
     def update_rnd(
         self, training_batch: List[Tuple[Any, Any, float, Any, bool, Dict]]
@@ -94,9 +138,20 @@ class RNDDQNAgent(DQNAgent):
             Each is (state, action, reward, next_state, done, info).
         """
         # TODO: get states and next_states from the batch
+        states, _, _, next_states, _, _ = zip(*training_batch)
+        states = torch.tensor(np.array(states), dtype=torch.float32)
+        next_states = torch.tensor(np.array(next_states), dtype=torch.float32)
+
         # TODO: compute the MSE
+        predicted_embedding = self.rnd_predictor(next_states)
+        target_embedding = self.rnd_target(next_states)
+        loss = nn.MSELoss()(predicted_embedding, target_embedding)
+
         # TODO: update the RND network
-        ...
+        self.rnd_predictor_optimizer.zero_grad()
+        loss.backward()
+        self.rnd_predictor_optimizer.step()
+        return loss.item()
 
     def get_rnd_bonus(self, state: np.ndarray) -> float:
         """Compute the RND bonus for a given state.
@@ -112,8 +167,12 @@ class RNDDQNAgent(DQNAgent):
             The RND bonus for the state.
         """
         # TODO: predict embeddings
+        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+        predicted_embedding = self.rnd_predictor(state_tensor)
+        target_embedding = self.rnd_target(state_tensor)
         # TODO: get error
-        ...
+        error = nn.MSELoss()(predicted_embedding, target_embedding).item()
+        return self.rnd_reward_weight * error
 
     def train(self, num_frames: int, eval_interval: int = 1000) -> None:
         """
@@ -137,7 +196,7 @@ class RNDDQNAgent(DQNAgent):
             next_state, reward, done, truncated, _ = self.env.step(action)
 
             # TODO: apply RND bonus
-            reward += ...
+            reward += self.get_rnd_bonus(next_state)
 
             # store and step
             self.buffer.add(state, action, reward, next_state, done or truncated, {})
@@ -149,8 +208,8 @@ class RNDDQNAgent(DQNAgent):
                 batch = self.buffer.sample(self.batch_size)
                 _ = self.update_agent(batch)
 
-            if self.total_steps % self.rnd_update_freq == 0:
-                self.update_rnd(batch)
+                if self.total_steps % self.rnd_update_freq == 0:
+                    self.update_rnd(batch)
 
             if done or truncated:
                 state, _ = self.env.reset()
@@ -172,15 +231,34 @@ class RNDDQNAgent(DQNAgent):
         training_data.to_csv(f"training_data_seed_{self.seed}.csv", index=False)
 
 
-@hydra.main(config_path="../configs/agent/", config_name="dqn", version_base="1.1")
+@hydra.main(config_path="../configs/agent/", config_name="RNDdqn", version_base="1.1")
 def main(cfg: DictConfig):
     # 1) build env
     env = gym.make(cfg.env.name)
     set_seed(env, cfg.seed)
 
     # 3) TODO: instantiate & train the agent
-    agent = ...
-    agent.train(...)
+    agent = RNDDQNAgent(
+        env,
+        buffer_capacity=cfg.agent.buffer_capacity,
+        batch_size=cfg.agent.batch_size,
+        lr=cfg.agent.learning_rate,
+        gamma=cfg.agent.gamma,
+        epsilon_start=cfg.agent.epsilon_start,
+        epsilon_final=cfg.agent.epsilon_final,
+        epsilon_decay=cfg.agent.epsilon_decay,
+        target_update_freq=cfg.agent.target_update_freq,
+        seed=cfg.seed,
+        rnd_hidden_size=cfg.agent.rnd_hidden_size,
+        rnd_lr=cfg.agent.rnd_learning_rate,
+        rnd_update_freq=cfg.agent.rnd_update_freq,
+        rnd_n_layers=cfg.agent.rnd_n_layers,
+        rnd_reward_weight=cfg.agent.rnd_reward_weight,
+    )
+    agent.train(
+        num_frames=cfg.train.num_frames,
+        eval_interval=cfg.train.eval_interval,
+    )
 
 
 if __name__ == "__main__":
