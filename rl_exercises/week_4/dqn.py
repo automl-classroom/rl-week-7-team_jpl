@@ -14,6 +14,7 @@ from omegaconf import DictConfig
 from rl_exercises.agent import AbstractAgent
 from rl_exercises.week_4.buffers import ReplayBuffer
 from rl_exercises.week_4.networks import QNetwork
+import pandas as pd
 
 
 def set_seed(env: gym.Env, seed: int = 0) -> None:
@@ -100,6 +101,7 @@ class DQNAgent(AbstractAgent):
         )
         self.env = env
         set_seed(env, seed)
+        self.seed = seed
 
         obs_dim = env.observation_space.shape[0]
         n_actions = env.action_space.n
@@ -264,6 +266,8 @@ class DQNAgent(AbstractAgent):
         state, _ = self.env.reset()
         ep_reward = 0.0
         recent_rewards: List[float] = []
+        episode_rewards = []
+        steps = []
 
         for frame in range(1, num_frames + 1):
             action = self.predict_action(state)
@@ -282,6 +286,8 @@ class DQNAgent(AbstractAgent):
             if done or truncated:
                 state, _ = self.env.reset()
                 recent_rewards.append(ep_reward)
+                episode_rewards.append(ep_reward)
+                steps.append(frame)
                 ep_reward = 0.0
                 # logging
                 if len(recent_rewards) % 10 == 0:
@@ -291,6 +297,8 @@ class DQNAgent(AbstractAgent):
                     )
 
         print("Training complete.")
+        training_data = pd.DataFrame({"steps": steps, "rewards": episode_rewards})
+        training_data.to_csv(f"training_data_seed_{self.seed}.csv", index=False)
 
 
 @hydra.main(config_path="../configs/agent/", config_name="dqn", version_base="1.1")

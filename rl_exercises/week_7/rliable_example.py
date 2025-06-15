@@ -15,7 +15,6 @@ df_s1 = pd.read_csv("demo_data_seed_1.csv")
 df_s0["seed"] = 0
 df_s1["seed"] = 1
 # Combine the dataframes and convert to numpy array
-
 df = pd.concat([df_s0, df_s1], ignore_index=True)
 # Make sure only one set of steps is attempted to be plotted
 # Obviously the steps should match in such cases!
